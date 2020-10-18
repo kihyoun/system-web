@@ -1,0 +1,121 @@
+image: docker:latest
+
+services:
+  - docker:dind
+
+variables:
+  IMAGE_TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+  CYPRESS_CACHE_FOLDER: "$CI_PROJECT_DIR/cache/Cypress"
+
+stages:
+  - build
+  - test
+  - deploy
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .npm
+    - cache/Cypress
+    - node_modules
+
+build:
+  stage: build
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login --username $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  script:
+    - docker build -t $IMAGE_TAG .
+    - docker push $IMAGE_TAG
+  only:
+    - merge_requests
+    - main
+
+test:cypress:
+  stage: test
+  services:
+    - name: $IMAGE_TAG
+      alias: alpha-host
+  image: cypress/base:10
+  script:
+    - npm ci
+    # check Cypress binary path and cached versions
+    # useful to make sure we are not carrying around old versions
+    - npx cypress cache path
+    - npx cypress cache list
+    - npx cypress run --config baseUrl=http://alpha-host:80
+  artifacts:
+    when: always
+    paths:
+      - cypress/videos/**/*.mp4
+      - cypress/screenshots/**/*.png
+    expire_in: 1 day
+  only:
+    - merge_requests
+    - main
+
+test:review:
+  stage: test
+  environment:
+    name: review/$CI_BUILD_REF_NAME
+    url: http://$CI_BUILD_REF_SLUG.typingninjas.com
+    on_stop: stop:review
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login --username $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    - set +e
+    - docker stop $CI_BUILD_REF_SLUG.typingninjas.com
+    - docker rm $CI_BUILD_REF_SLUG.typingninjas.com
+    - set -e
+  script:
+    - docker run -itd --network nginx-proxy_review -e VIRTUAL_HOST=$CI_BUILD_REF_SLUG.typingninjas.com --name $CI_BUILD_REF_SLUG.typingninjas.com $IMAGE_TAG
+  except:
+    - main
+  only:
+    - merge_requests
+
+stop:review:
+  stage: deploy
+  allow_failure: true
+  script:
+    - docker stop $CI_BUILD_REF_SLUG.typingninjas.com
+    - docker rm $CI_BUILD_REF_SLUG.typingninjas.com
+  environment:
+    name: review/$CI_BUILD_REF_NAME
+    action: stop
+  when: manual
+  only:
+    - merge_requests
+
+deploy:beta:
+  stage: deploy
+  environment:
+    name: production/beta
+    url: https://beta.typingninjas.com
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login --username $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    - set +e
+    - docker stop beta.typingninjas.com
+    - docker rm beta.typingninjas.com
+    - set -e
+  script:
+    - docker run -itd --network nginx-proxy_beta -e VIRTUAL_HOST=beta.typingninjas.com --name beta.typingninjas.com $IMAGE_TAG
+  only:
+    - main
+
+deploy:prod:
+  stage: deploy
+  environment:
+    name: production/www
+    url: https://www.typingninjas.com
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login --username $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    - set +e
+    - docker stop www.typingninjas.com
+    - docker rm www.typingninjas.com
+    - set -e
+  script:
+    - docker run -itd --network nginx-proxy_prod -e VIRTUAL_HOST=www.typingninjas.com --name www.typingninjas.com $IMAGE_TAG
+  only:
+    - main
+  when: manual
+
