@@ -1,3 +1,3 @@
-# system-web
+# System-Web React Example
 
-Gitlab Pipeline Example, [built with the System](https://github.com/kihyoun/system)
+React Example, [built with the System](https://github.com/kihyoun/system)
