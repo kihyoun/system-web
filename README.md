@@ -1,5 +1,5 @@
-# System-Web React
+# System-Web React Example
 
-A fully integrated, containerized Review Apps Environment for React Web Development
+Simple React Example 
 
-This Project must be boostrapped with [the System Bootstrapper](https://github.com/kihyoun/system)
+This Project can be used together with [the System Bootstrapper](https://github.com/kihyoun/system)
